@@ -7,3 +7,5 @@ I chose just a few of the many measures from the full dataset to work with for t
 There are many R packages for visualizing maps. After investigating a few of them, I chose to use the **urbnmapr** package, because it seemed relatively easy to use to make nice choropleth maps at the county level. Additional plots were made using **ggplot2** and **plotly**.
 
 The original dataset can be found in the data subfolder. The file **chr_analysis.Rmd** contains the code for the analysis and discusses the results.
+
+The report can be viewed at https://susanwelch404.github.io/county_health_rankings/.
