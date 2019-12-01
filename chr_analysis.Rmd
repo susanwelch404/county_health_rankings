@@ -1,0 +1,327 @@
+---
+title: "Mapping and Analysis of Selected Data from the 2019 County Health Rankings"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 12, fig.height = 8)
+```
+## Introduction
+
+I wanted to try working with map data in R.
+
+Because my primary areas of interest are in healthcare and public health, I thought it would be interesting to work with selected measures from the 2019 County Health Rankings from the Robert Wood Johnson Foundation. You can find the data and read more information about its sources at this site:
+https://www.countyhealthrankings.org/.
+
+In this analysis I have chosen to examine the following measures: Poor or Fair Health, Adult Obesity,
+Adult Smoking, Physical Inactivity and Uninsured.
+
+Data visualization was performed using **urbnmapr**, **ggplot2** and **plotly**.
+
+
+```{r read data, message=FALSE, warning=FALSE}
+# Read in libraries and data
+
+library(tidyverse)
+library(urbnmapr)
+library(viridis)
+library(ggpubr)
+library(plotly)
+library(knitr)
+library(kableExtra)
+
+# The csv file obtained from the website has two header rows, and the first one is the one we want, so we use two steps to read the file.
+
+chr2019_names <- read_csv("data/analytic_data2019.csv", n_max = 0) %>% 
+  names()
+
+chr2019 <- read_csv("data/analytic_data2019.csv", col_names = chr2019_names, skip = 2)
+
+# Remove US and state totals, only keeping county data
+chr2019_co <- chr2019 %>% 
+  filter(`County FIPS Code`!="000")
+
+# Keep only state totals here, remove US and DC
+chr2019_st <- chr2019 %>% 
+  filter(`State FIPS Code`!="000") %>% 
+  filter(`County FIPS Code`=="000") %>% 
+  filter(`County FIPS Code`=="000") %>% 
+  filter(`State Abbreviation` != "US") %>% 
+  filter(`State Abbreviation` != "DC")
+  
+```
+
+
+```{r data prep, echo=FALSE}
+
+# Rename selected columns to make the variable names easier to work with
+chr2019_co <- rename(chr2019_co,
+                  state = `State Abbreviation`,
+                  county_name = Name, 
+                  county_fips = `5-digit FIPS Code`,
+                  poor_fair_health = `Poor or fair health raw value`, 
+                  adult_smoking = `Adult smoking raw value`, 
+                  adult_obesity = `Adult obesity raw value`, 
+                  physical_inactivity = `Physical inactivity raw value`,
+                  uninsured = `Uninsured raw value`, 
+                  )
+
+
+# Select the columns of interest
+chr2019_co_small <- select(chr2019_co, 
+                        "state", 
+                        "county_name",
+                        "county_fips",
+                        "poor_fair_health", 
+                        "adult_smoking", 
+                        "adult_obesity", 
+                        "physical_inactivity", 
+                        "uninsured", 
+                        )
+
+
+```
+
+First we map the percentage of people in each county who are in poor to fair health using the **urbnmapr** package. I chose this package because it allows you to make nice maps quite easily using shapefiles from the US Census Bureau. You can find more information about this package on their GitHub site:  https://github.com/UrbanInstitute/urbnmapr.
+<br>
+<br>
+
+```{r join data}
+# Join data with county shapefiles from Urban Institute:
+
+
+spatial_data <- left_join(get_urbn_map(map = "counties", sf = TRUE),
+                          chr2019_co_small,
+                          by = "county_fips")
+```
+
+
+#### Map 1: Poor or fair health percentage by county
+```{r poor fair health map}
+poor_fair_health_map <- ggplot() +
+  geom_sf(spatial_data,
+          mapping = aes(fill = poor_fair_health),
+          color = "#ffffff", size = 0.25) +
+  scale_fill_viridis(option = "inferno",
+                     labels = scales::percent) +
+  labs(fill = "Poor or Fair Health") +
+  coord_sf(datum = NA)
+
+poor_fair_health_map
+```
+
+We can see there is quite a bit of variation in this measure throughout the US. Next we map the percentage of adults who smoke.
+<br>
+<br>
+
+#### Map 2: Adult smoking percentage by county
+```{r adult smoking map}
+smoking_map <- ggplot() +
+  geom_sf(spatial_data,
+          mapping = aes(fill = adult_smoking),
+          color = "#ffffff", size = 0.25) +
+  scale_fill_viridis(option = "inferno",
+                    labels = scales::percent) +
+  labs(fill = "Adult Smoking") +
+  coord_sf(datum = NA)
+
+smoking_map
+```
+
+These two maps look remarkably similar (not too surprising given the well known health effects of smoking). There are some differences too if you look closely. Lets look at this data a different way. The next plot is interactive, so you can hover over a point to display the county and state.
+<br>
+<br>
+
+#### Plot 1: Smoking and poor or fair health correlation by county
+```{r smoking and health, warning=FALSE, fig.width=10, fig.height=6}
+smo_health_r <- cor.test(chr2019_co_small$adult_smoking, 
+                         chr2019_co_small$poor_fair_health, 
+                         method = "pearson", 
+                         conf.level = 0.95) 
+smo_health_r <- round(smo_health_r$estimate, 2) 
+smo_health_r <- unname(smo_health_r)
+
+smo_health_plot <- ggplot(chr2019_co_small, aes(x = adult_smoking, 
+                                             y= poor_fair_health)) + 
+  geom_point(size = 0.75, aes(text = str_c(county_name, state, sep =","))) + 
+  geom_smooth(method = "lm") + 
+  annotate(geom = "text", x= 0.1, y = 0.4, 
+           col = "red", 
+           size = 6,
+           label = str_c("r=",smo_health_r)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank()) +
+  xlab("Adult Smoking") +
+  ylab("Poor or Fair Health")
+
+
+ggplotly(smo_health_plot, tooltip = "text") 
+```
+
+It does look like there's a pretty strong correlation, but some counties have a very high percentage of poor or fair health and a medium percentage of adult smoking. Many of those counties are close to the the Mexican border. Look again at Map 1, and notice the amount of orange and red in this region compared to Map 2.
+
+Another interesting insight is that there is a relatively large percentage of smokers in Alaska.
+
+Next, we'll look at a map of adult obesity rates.
+<br>
+<br>
+
+#### Map 3: Adult obesity percentage by county
+```{r adult obesity map}
+obesity_map <- ggplot() +
+  geom_sf(spatial_data,
+          mapping = aes(fill = adult_obesity),
+          color = "#ffffff", size = 0.25) +
+  scale_fill_viridis(option = "inferno",
+                     labels = scales::percent) +
+  labs(fill = "Adult Obesity") +
+  coord_sf(datum = NA)
+
+obesity_map
+```
+There is a lot of orange and yellow on the above map! It is well known that obesity is related to exercise. Let's look at rates of physical inactivity to see if the pattern is similar.
+<br>
+<br>
+
+#### Map 4: Physical inactivity percentage by county
+```{r physical inactivity map}
+inactivity_map <- ggplot() +
+  geom_sf(spatial_data,
+          mapping = aes(fill = physical_inactivity),
+          color = "#ffffff", size = 0.25) +
+  scale_fill_viridis(option = "inferno",
+                     labels = scales::percent) +
+  labs(fill = "Physical Inactivity") +
+  coord_sf(datum = NA)
+
+inactivity_map
+```
+
+As we did with smoking and health, we can plot adult obesity against physical inactivity to look for possible correlation.
+<br>
+<br>
+
+#### Plots 2 and 3: Physical inactivity and adult obesity correlation by county
+
+```{r physical inactivity and adult_obesity, warning=FALSE, fig.width=10, fig.height=6}
+inac_obe_r <- cor.test(chr2019_co_small$physical_inactivity, 
+                     chr2019_co_small$adult_obesity, 
+                     method = "pearson", 
+                     conf.level = 0.95) 
+inac_obe_r <- round(inac_obe_r$estimate, 2) 
+inac_obe_r <- unname(inac_obe_r)
+
+inac_obes_plot <- ggplot(chr2019_co_small, aes(x = physical_inactivity, y= adult_obesity)) + 
+  geom_point(size = 0.75, aes(text = str_c(county_name, state, sep =","))) + 
+  geom_smooth(method = "lm") + 
+  annotate(geom = "text", x= 0.1, y = 0.4, 
+           col = "red", 
+           size = 6,
+           label = str_c("r=",inac_obe_r)) +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank()) +
+  xlab("Physical Inactivity") +
+  ylab("Adult Obesity")
+
+
+ggplotly(inac_obes_plot, tooltip = "text") 
+```
+
+Here the correlation is a little less strong. Clearly factors other than lack of physical activity contribute to obesity rates. 
+
+It kind of looks like it may not be quite linear. Let's examine a different type of fit, LOESS.
+
+```{r loess, warning=FALSE, fig.width=10, fig.height=6}
+inac_obes_plot_loess <- ggplot(chr2019_co_small, aes(x = physical_inactivity, y= adult_obesity)) + 
+  geom_point(size = 0.75, aes(text = str_c(county_name, state, sep =","))) + 
+  geom_smooth(method = "loess") + 
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank()) +
+  xlab("Physical Inactivity") +
+  ylab("Adult Obesity") 
+
+ggplotly(inac_obes_plot_loess, tooltip = "text") 
+
+```
+It looks like the obesity percentage kind of levels off as physical inactivity rates increase. We could do further analysis of this, but let's leave that for another time and explore some more measures from the County Health Rankings.
+
+Next we will look at the percentage of people who are uninsured.
+
+<br>
+
+#### Map 5: Uninsured percentage by county
+
+```{r uninsured map}
+uninsured_map <- ggplot() +
+  geom_sf(spatial_data,
+          mapping = aes(fill = uninsured),
+          color = "#ffffff", size = 0.25) +
+  scale_fill_viridis(option = "inferno",
+                     labels = scales::percent) +
+  labs(fill = "Uninsured") +
+  coord_sf(datum = NA)
+
+uninsured_map
+```
+
+Wow, it looks like really high percentages of the population are uninsured in counties in Texas, Alaska and Oklahoma! A little bit of internet searching turns up some similar findings, especially about Texas. According to news reports, the rate of uninsured people in Texas is almost double the national average. And the last couple of years, it has been increasing.
+
+https://www.dallasnews.com/business/health-care/2019/09/10/here-s-how-many-texans-don-t-have-health-insurance-according-to-new-census-data/
+
+Let's look at the percentage of uninsured people at the state level.
+
+<br>
+
+#### Map 6: Uninsured percentage by state
+```{r uninsured by state map}
+chr2019_st <- rename(chr2019_st,
+                  state = `State Abbreviation`,
+                  state_name = Name, 
+                  county_fips = `5-digit FIPS Code`,
+                  uninsured = `Uninsured raw value`, 
+                  )
+
+
+
+chr2019_st_small <- select(chr2019_st, 
+                        "state", 
+                        "state_name",
+                        "uninsured")
+
+```
+
+```{r}
+spatial_data_st <- left_join(get_urbn_map(map = "states", sf = TRUE),
+                          chr2019_st_small,
+                          by = "state_name")
+
+ggplot() +
+  geom_sf(spatial_data_st,
+          mapping = aes(fill = uninsured),
+          color = "#ffffff", size = 0.25) +
+    scale_fill_viridis(option = "plasma",
+                     labels = scales::percent) +
+  labs(fill = "Uninsured") +
+  geom_sf_text(data = get_urbn_labels(map = "states", sf = TRUE), 
+                aes(label = state_abbv), 
+            size = 3)
+
+```
+I used a slightly different color palette for the state map, because I wanted to put labels on the states.
+
+We can view states with the highest percentages of uninsured people in descending order:
+```{r uninsured list}
+by_uninsured_st <- chr2019_st_small %>% 
+  select(state_name, uninsured) %>%
+  arrange(desc(uninsured))
+knitr::kable(head(by_uninsured_st), col.names=c("State","Uninsured")) %>% 
+  kable_styling(full_width = F)
+```
+
+On the county map, it kind of looks like Alaska would be higher than Oklahoma, because it has more yellow. However, when the data are aggregated at state level, it is clear that Oklahoma has more uninsured people than Alaska. This is because the population of Alaska is concentrated in a small part of the state. The parts of Alaska that are yellow and orange have a very low population density. 
+
+Much more insight can be gleaned from this dataset, but that is enough for today. It didn't take long at all to learn how to use the **urbnmapr** package. I learned a lot while working on this project. We will explore more data from the County Health Rankings at a later time. Thank you for reading.
+
