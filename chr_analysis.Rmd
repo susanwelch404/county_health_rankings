@@ -312,7 +312,9 @@ ggplot() +
   labs(fill = "Uninsured") +
   geom_sf_text(data = get_urbn_labels(map = "states", sf = TRUE), 
                 aes(label = state_abbv), 
-            size = 3)
+            size = 3) +
+            coord_sf(datum = NA) +
+            xlab("") + ylab("")
 
 ```
 I used a slightly different color palette for the state map, because I wanted to put labels on the states.
